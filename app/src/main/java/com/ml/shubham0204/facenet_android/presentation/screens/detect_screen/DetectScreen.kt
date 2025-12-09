@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -58,7 +59,10 @@ private lateinit var cameraPermissionLauncher: ManagedActivityResultLauncher<Str
 
 @kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DetectScreen(onOpenFaceListClick: (() -> Unit)) {
+fun DetectScreen(
+    onOpenFaceListClick: (() -> Unit),
+    onOpenBenchmarkClick: (() -> Unit) = {}
+) {
     FaceNetAndroidTheme {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -72,6 +76,12 @@ fun DetectScreen(onOpenFaceListClick: (() -> Unit)) {
                         )
                     },
                     actions = {
+                        IconButton(onClick = onOpenBenchmarkClick) {
+                            Icon(
+                                imageVector = Icons.Default.Speed,
+                                contentDescription = "性能测试",
+                            )
+                        }
                         IconButton(onClick = onOpenFaceListClick) {
                             Icon(
                                 imageVector = Icons.Default.Face,
