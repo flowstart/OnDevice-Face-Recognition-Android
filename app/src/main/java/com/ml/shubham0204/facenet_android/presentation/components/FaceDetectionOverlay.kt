@@ -172,51 +172,32 @@ class FaceDetectionOverlay(
             CoroutineScope(Dispatchers.Default).launch {
                 val predictions = ArrayList<Prediction>()
                 
-                try {
-                    // Use offloading use case for real network requests
-                    val (metrics, results) =
-                        viewModel.offloadingImageVectorUseCase.getNearestPersonNameWithOffloading(
-                            frameBitmap,
-                            flatSearch,
-                        )
-                    
-                    // Clear network error on success
-                    viewModel.setNetworkError(null)
-                    
-                    results.forEach { result ->
-                        val box = result.boundingBox.toRectF()
-                        var personName = result.personName
-                        if (viewModel.getNumPeople().toInt() == 0) {
-                            personName = ""
-                        }
-                        if (result.spoofResult != null && result.spoofResult.isSpoof) {
-                            personName = "$personName (Spoof)"
-                        }
-                        boundingBoxTransform.mapRect(box)
-                        predictions.add(Prediction(box, personName))
+                // Use offloading use case - 内部已处理fallback逻辑
+                val (metrics, results) =
+                    viewModel.offloadingImageVectorUseCase.getNearestPersonNameWithOffloading(
+                        frameBitmap,
+                        flatSearch,
+                    )
+                
+                results.forEach { result ->
+                    val box = result.boundingBox.toRectF()
+                    var personName = result.personName
+                    if (viewModel.getNumPeople().toInt() == 0) {
+                        personName = ""
                     }
-                    
-                    withContext(Dispatchers.Main) {
-                        // Update extended metrics
-                        metrics?.let { viewModel.updateExtendedMetrics(it) }
-                        this@FaceDetectionOverlay.predictions = predictions.toTypedArray()
-                        boundingBoxOverlay.invalidate()
-                        isProcessing = false
+                    if (result.spoofResult != null && result.spoofResult.isSpoof) {
+                        personName = "$personName (Spoof)"
                     }
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) {
-                        // Show network error
-                        val errorMsg = when {
-                            e.message?.contains("timeout", ignoreCase = true) == true -> 
-                                "云端响应超时"
-                            e.message?.contains("connection", ignoreCase = true) == true || 
-                            e.message?.contains("network", ignoreCase = true) == true -> 
-                                "网络不可用"
-                            else -> "连接失败: ${e.message?.take(30)}"
-                        }
-                        viewModel.setNetworkError(errorMsg)
-                        isProcessing = false
-                    }
+                    boundingBoxTransform.mapRect(box)
+                    predictions.add(Prediction(box, personName))
+                }
+                
+                withContext(Dispatchers.Main) {
+                    // Update extended metrics (内部会处理fallback提示)
+                    metrics?.let { viewModel.updateExtendedMetrics(it) }
+                    this@FaceDetectionOverlay.predictions = predictions.toTypedArray()
+                    boundingBoxOverlay.invalidate()
+                    isProcessing = false
                 }
             }
             image.close()

@@ -180,6 +180,14 @@ def simulate_face_detection(image: Image.Image) -> List[dict]:
     }]
 
 
+def simulate_vector_search_delay():
+    """
+    Simulate vector search processing time.
+    Real vector search with FAISS or similar would take 5-15ms.
+    """
+    time.sleep(0.005 + np.random.random() * 0.01)  # 5-15ms
+
+
 # Create FastAPI app
 app = FastAPI(
     title="Face Recognition Offloading Server",
@@ -264,6 +272,10 @@ async def search_vector(request: VectorSearchRequest):
     
     try:
         query_embedding = np.array(request.query_embedding)
+        
+        # Simulate vector search processing time (5-15ms)
+        simulate_vector_search_delay()
+        
         result = vector_store.search(query_embedding, request.threshold)
         
         processing_time = (time.time() - start_time) * 1000
@@ -303,12 +315,13 @@ async def embedding_and_search(request: EmbeddingRequest):
         # Decode image
         image = decode_base64_image(request.image_base64)
         
-        # Generate embedding
+        # Generate embedding (80-120ms simulated)
         embedding = simulate_facenet_embedding(image)
         embedding_time = (time.time() - embedding_start) * 1000
         
-        # Search
+        # Search (5-15ms simulated)
         search_start = time.time()
+        simulate_vector_search_delay()
         result = vector_store.search(embedding, threshold=0.4)
         search_time = (time.time() - search_start) * 1000
         
@@ -360,13 +373,14 @@ async def full_pipeline(request: FullPipelineRequest):
             x, y, w, h = face_bbox['x'], face_bbox['y'], face_bbox['width'], face_bbox['height']
             cropped = image.crop((x, y, x + w, y + h))
             
-            # Generate embedding
+            # Generate embedding (80-120ms simulated)
             embedding_start = time.time()
             embedding = simulate_facenet_embedding(cropped)
             total_embedding_time += (time.time() - embedding_start) * 1000
             
-            # Search
+            # Search (5-15ms simulated)
             search_start = time.time()
+            simulate_vector_search_delay()
             result = vector_store.search(embedding, threshold=0.4)
             total_search_time += (time.time() - search_start) * 1000
             

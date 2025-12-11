@@ -149,18 +149,23 @@ private fun ScreenUI() {
                 )
             }
             
-            // Network error display
+            // Network status display (fallback mode or error)
             networkError?.let { error ->
+                val isFallback = error.contains("回退")
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color.Red.copy(alpha = 0.8f))
+                        .background(
+                            if (isFallback) Color(0xFFFF9800).copy(alpha = 0.9f)  // 橙色表示回退
+                            else Color.Red.copy(alpha = 0.8f)  // 红色表示错误
+                        )
                         .padding(8.dp)
                 ) {
                     Text(
                         text = error,
                         color = Color.White,
                         fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
                         modifier = Modifier.align(Alignment.Center)
                     )
                 }

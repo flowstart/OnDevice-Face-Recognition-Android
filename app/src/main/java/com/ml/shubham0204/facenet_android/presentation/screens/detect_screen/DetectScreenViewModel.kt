@@ -27,7 +27,8 @@ data class ExtendedMetrics(
     val timeServerProcessing: Long,
     val totalTime: Long,
     val dataTransferredBytes: Long,
-    val modeName: String
+    val modeName: String,
+    val isFallback: Boolean = false  // 是否回退到本地模式
 )
 
 @KoinViewModel
@@ -56,6 +57,10 @@ class DetectScreenViewModel(
     // Network error state
     private val _networkError = MutableStateFlow<String?>(null)
     val networkError: StateFlow<String?> = _networkError
+    
+    // Fallback mode state
+    private val _isFallbackMode = MutableStateFlow(false)
+    val isFallbackMode: StateFlow<Boolean> = _isFallbackMode
 
     fun getNumPeople(): Long = personUseCase.getCount()
     
@@ -77,9 +82,18 @@ class DetectScreenViewModel(
             timeServerProcessing = metrics.timeServerProcessing,
             totalTime = metrics.totalTime,
             dataTransferredBytes = metrics.dataTransferredBytes,
-            modeName = getModeDisplayName(metrics.offloadingMode)
+            modeName = getModeDisplayName(metrics.offloadingMode),
+            isFallback = metrics.isFallback
         )
         _currentModeName.value = getModeDisplayName(OffloadingConfig.currentMode)
+        _isFallbackMode.value = metrics.isFallback
+        
+        // 更新网络错误提示
+        if (metrics.isFallback && metrics.offloadingMode != OffloadingConfig.OffloadingMode.LOCAL_ONLY) {
+            _networkError.value = "已回退到本地模式"
+        } else {
+            _networkError.value = null
+        }
     }
     
     /**
