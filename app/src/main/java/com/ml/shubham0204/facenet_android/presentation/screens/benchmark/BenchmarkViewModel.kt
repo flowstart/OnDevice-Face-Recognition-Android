@@ -3,7 +3,8 @@ package com.ml.shubham0204.facenet_android.presentation.screens.benchmark
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import android.net.Uri
+import android.os.Build
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
@@ -53,29 +54,68 @@ class BenchmarkViewModel(
     private val _statusMessage = MutableStateFlow("")
     val statusMessage: StateFlow<String> = _statusMessage
     
+    // Upload status for each mode
+    private val _uploadedModes = MutableStateFlow<Set<OffloadingMode>>(emptySet())
+    val uploadedModes: StateFlow<Set<OffloadingMode>> = _uploadedModes
+    
+    // Configuration saved status
+    private val _configSaved = MutableStateFlow(false)
+    val configSaved: StateFlow<Boolean> = _configSaved
+    
     // Store all results for export
     private val allResults = mutableListOf<BenchmarkResult>()
     
+    init {
+        // Sync uploaded modes from OffloadingConfig
+        _uploadedModes.value = OffloadingConfig.uploadedModes.toSet()
+    }
+    
     fun setMode(mode: OffloadingMode) {
         _currentMode.value = mode
-        OffloadingConfig.currentMode = mode
+        _configSaved.value = false  // Mark as unsaved when mode changes
     }
     
     fun updateServerHost(host: String) {
         _serverHost.value = host
-        OffloadingConfig.serverHost = host
         _isServerReachable.value = null
+        _configSaved.value = false
     }
     
     fun updateServerPort(port: Int) {
         _serverPort.value = port
-        OffloadingConfig.serverPort = port
         _isServerReachable.value = null
+        _configSaved.value = false
+    }
+    
+    /**
+     * Save configuration and apply changes.
+     */
+    fun saveConfig() {
+        OffloadingConfig.serverHost = _serverHost.value
+        OffloadingConfig.serverPort = _serverPort.value
+        OffloadingConfig.currentMode = _currentMode.value
+        _configSaved.value = true
+        _statusMessage.value = "配置已保存！当前模式: ${getModeDisplayName(_currentMode.value)}"
+    }
+    
+    /**
+     * Reset session for new test.
+     */
+    fun resetSession() {
+        OffloadingConfig.resetSession()
+        _uploadedModes.value = emptySet()
+        _testResults.value = emptyList()
+        allResults.clear()
+        _statusMessage.value = "已重置，开始新的测试会话"
     }
     
     fun testServerConnection() {
         viewModelScope.launch {
             _statusMessage.value = "正在测试连接..."
+            // Apply current settings first
+            OffloadingConfig.serverHost = _serverHost.value
+            OffloadingConfig.serverPort = _serverPort.value
+            
             _isServerReachable.value = cloudService.isServerReachable()
             _statusMessage.value = if (_isServerReachable.value == true) {
                 "服务器连接成功！"
@@ -83,6 +123,41 @@ class BenchmarkViewModel(
                 "无法连接到服务器，请检查IP和端口"
             }
         }
+    }
+    
+    /**
+     * Check if all modes have been uploaded.
+     */
+    fun canGenerateReport(): Boolean = _uploadedModes.value.size == OffloadingMode.values().size
+    
+    /**
+     * Generate report and open in browser.
+     */
+    fun generateReport(context: Context) {
+        viewModelScope.launch {
+            _statusMessage.value = "正在生成报告..."
+            
+            val reportId = cloudService.generateReport(OffloadingConfig.sessionId)
+            
+            if (reportId != null) {
+                _statusMessage.value = "报告生成成功！"
+                // Open report in browser
+                val url = cloudService.getReportUrl(reportId)
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                context.startActivity(intent)
+            } else {
+                _statusMessage.value = "报告生成失败，请重试"
+            }
+        }
+    }
+    
+    /**
+     * Open report list page in browser.
+     */
+    fun openReportList(context: Context) {
+        val url = cloudService.getReportListUrl()
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        context.startActivity(intent)
     }
     
     /**

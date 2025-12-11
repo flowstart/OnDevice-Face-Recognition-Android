@@ -319,5 +319,127 @@ class CloudService {
                 false
             }
         }
+    
+    /**
+     * Data class for performance metrics to upload.
+     */
+    data class PerformanceData(
+        val sessionId: String,
+        val mode: String,
+        val modeName: String,
+        val faceDetectionMs: Long,
+        val embeddingMs: Long,
+        val vectorSearchMs: Long,
+        val spoofDetectionMs: Long,
+        val networkMs: Long,
+        val serverMs: Long,
+        val totalMs: Long,
+        val dataTransferredBytes: Long,
+        val deviceInfo: String,
+        val networkType: String
+    )
+    
+    /**
+     * Upload performance data to server.
+     */
+    suspend fun uploadPerformanceData(data: PerformanceData): Boolean =
+        withContext(Dispatchers.IO) {
+            Log.d(TAG, "Uploading performance data for ${data.modeName}...")
+            
+            val requestBody = JSONObject().apply {
+                put("session_id", data.sessionId)
+                put("mode", data.mode)
+                put("mode_name", data.modeName)
+                put("metrics", JSONObject().apply {
+                    put("face_detection_ms", data.faceDetectionMs)
+                    put("embedding_ms", data.embeddingMs)
+                    put("vector_search_ms", data.vectorSearchMs)
+                    put("spoof_detection_ms", data.spoofDetectionMs)
+                    put("network_ms", data.networkMs)
+                    put("server_ms", data.serverMs)
+                    put("total_ms", data.totalMs)
+                    put("data_transferred_bytes", data.dataTransferredBytes)
+                })
+                put("device_info", data.deviceInfo)
+                put("network_type", data.networkType)
+                put("timestamp", System.currentTimeMillis())
+            }
+            
+            try {
+                postJson("/api/v1/report/upload", requestBody)
+                Log.d(TAG, "Performance data uploaded successfully")
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to upload performance data: ${e.message}")
+                false
+            }
+        }
+    
+    /**
+     * Get upload status for all modes in current session.
+     */
+    suspend fun getUploadStatus(sessionId: String): Map<String, Boolean> =
+        withContext(Dispatchers.IO) {
+            try {
+                val url = URL("${OffloadingConfig.serverBaseUrl}/api/v1/report/status?session_id=$sessionId")
+                val connection = url.openConnection() as HttpURLConnection
+                connection.connectTimeout = 5000
+                connection.requestMethod = "GET"
+                
+                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                    val response = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(response)
+                    val statusObj = json.getJSONObject("modes")
+                    
+                    val result = mutableMapOf<String, Boolean>()
+                    statusObj.keys().forEach { key ->
+                        result[key] = statusObj.getBoolean(key)
+                    }
+                    connection.disconnect()
+                    result
+                } else {
+                    connection.disconnect()
+                    emptyMap()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to get upload status: ${e.message}")
+                emptyMap()
+            }
+        }
+    
+    /**
+     * Generate performance report.
+     */
+    suspend fun generateReport(sessionId: String): String? =
+        withContext(Dispatchers.IO) {
+            Log.d(TAG, "Generating report for session $sessionId...")
+            
+            val requestBody = JSONObject().apply {
+                put("session_id", sessionId)
+            }
+            
+            try {
+                val response = postJson("/api/v1/report/generate", requestBody)
+                val json = JSONObject(response)
+                json.getString("report_id")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to generate report: ${e.message}")
+                null
+            }
+        }
+    
+    /**
+     * Get report page URL.
+     */
+    fun getReportUrl(reportId: String): String {
+        return "${OffloadingConfig.serverBaseUrl}/report/$reportId"
+    }
+    
+    /**
+     * Get report list URL.
+     */
+    fun getReportListUrl(): String {
+        return "${OffloadingConfig.serverBaseUrl}/report"
+    }
 }
 

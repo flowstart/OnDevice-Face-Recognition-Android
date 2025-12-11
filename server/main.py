@@ -21,6 +21,7 @@ import numpy as np
 from PIL import Image
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 # Configure logging
@@ -446,6 +447,140 @@ async def benchmark_embedding(request: EmbeddingRequest, iterations: int = 10):
         "max_ms": np.max(times)
     }
 
+
+# ============================================================
+# Performance Report APIs
+# ============================================================
+
+import uuid
+from datetime import datetime
+from collections import defaultdict
+
+# Storage
+performance_data_store = defaultdict(dict)
+reports_store = {}
+
+class PerformanceMetrics(BaseModel):
+    face_detection_ms: int
+    embedding_ms: int
+    vector_search_ms: int
+    spoof_detection_ms: int
+    network_ms: int
+    server_ms: int
+    total_ms: int
+    data_transferred_bytes: int = 0
+
+class PerformanceDataUpload(BaseModel):
+    session_id: str
+    mode: str
+    mode_name: str
+    metrics: PerformanceMetrics
+    device_info: str
+    network_type: str
+    timestamp: int
+
+class GenerateReportRequest(BaseModel):
+    session_id: str
+
+@app.post("/api/v1/report/upload")
+async def upload_performance_data(data: PerformanceDataUpload):
+    session_id = data.session_id
+    mode = data.mode
+    performance_data_store[session_id][mode] = {
+        "mode": mode, "mode_name": data.mode_name,
+        "metrics": data.metrics.dict(), "device_info": data.device_info,
+        "network_type": data.network_type, "timestamp": data.timestamp,
+        "uploaded_at": datetime.now().isoformat()
+    }
+    return {"status": "success", "uploaded_modes": list(performance_data_store[session_id].keys())}
+
+@app.get("/api/v1/report/status")
+async def get_upload_status(session_id: str):
+    all_modes = ["LOCAL_ONLY", "EMBEDDING_OFFLOAD", "SEARCH_OFFLOAD", 
+                 "EMBEDDING_AND_SEARCH_OFFLOAD", "FULL_OFFLOAD"]
+    uploaded = performance_data_store.get(session_id, {})
+    return {"session_id": session_id, "modes": {m: m in uploaded for m in all_modes}}
+
+@app.post("/api/v1/report/generate")
+async def generate_report(request: GenerateReportRequest):
+    session_data = performance_data_store.get(request.session_id, {})
+    if not session_data:
+        raise HTTPException(status_code=404, detail="No data")
+    report_id = str(uuid.uuid4())[:8]
+    first = list(session_data.values())[0]
+    modes_data = [{"mode": m, **d["metrics"], "mode_name": d["mode_name"]} 
+                  for m, d in session_data.items()]
+    modes_data.sort(key=lambda x: x["mode"])
+    reports_store[report_id] = {
+        "report_id": report_id, "session_id": request.session_id,
+        "created_at": datetime.now().isoformat(), "device_info": first["device_info"],
+        "modes": modes_data, "total_modes_tested": len(modes_data)
+    }
+    return {"status": "success", "report_id": report_id}
+
+@app.get("/api/v1/report/list")
+async def list_reports():
+    reports = [{"report_id": r["report_id"], "created_at": r["created_at"], 
+                "device_info": r["device_info"]} for r in reports_store.values()]
+    reports.sort(key=lambda x: x["created_at"], reverse=True)
+    return {"reports": reports, "total": len(reports)}
+
+@app.get("/api/v1/report/{report_id}")
+async def get_report(report_id: str):
+    if report_id not in reports_store:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return reports_store[report_id]
+
+# ============================================================
+# HTML Report Pages
+# ============================================================
+
+@app.get("/report", response_class=HTMLResponse)
+async def report_list_page():
+    reports = list(reports_store.values())
+    reports.sort(key=lambda x: x["created_at"], reverse=True)
+    rows = "".join([f'<tr><td>{r["report_id"]}</td><td>{r["device_info"]}</td>'
+                    f'<td>{r["created_at"][:19]}</td><td>{r["total_modes_tested"]}</td>'
+                    f'<td><a href="/report/{r["report_id"]}">查看</a></td></tr>' for r in reports])
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>性能报告列表</title>
+<style>body{{font-family:Arial;padding:20px;background:#f5f5f5}}
+table{{width:100%;border-collapse:collapse;background:white}}
+th,td{{border:1px solid #ddd;padding:12px;text-align:left}}
+th{{background:#4CAF50;color:white}}a{{color:#4CAF50}}</style></head>
+<body><h1>性能测试报告列表</h1>
+<table><tr><th>报告ID</th><th>设备</th><th>创建时间</th><th>模式数</th><th>操作</th></tr>
+{rows if rows else "<tr><td colspan='5'>暂无报告</td></tr>"}</table></body></html>'''
+
+@app.get("/report/{report_id}", response_class=HTMLResponse)
+async def report_detail_page(report_id: str):
+    if report_id not in reports_store:
+        return HTMLResponse("<h1>报告不存在</h1>", status_code=404)
+    r = reports_store[report_id]
+    rows = "".join([f'<tr><td>{m["mode_name"]}</td><td>{m["face_detection_ms"]}</td>'
+                    f'<td>{m["embedding_ms"]}</td><td>{m["vector_search_ms"]}</td>'
+                    f'<td>{m["network_ms"]}</td><td>{m["server_ms"]}</td>'
+                    f'<td><b>{m["total_ms"]}</b></td></tr>' for m in r["modes"]])
+    chart_labels = str([m["mode_name"] for m in r["modes"]])
+    chart_data = str([m["total_ms"] for m in r["modes"]])
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>性能报告 {report_id}</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>body{{font-family:Arial;padding:20px;background:#f5f5f5;max-width:1000px;margin:auto}}
+.card{{background:white;padding:20px;border-radius:8px;margin:15px 0;box-shadow:0 2px 4px rgba(0,0,0,0.1)}}
+table{{width:100%;border-collapse:collapse}}th,td{{border:1px solid #ddd;padding:10px}}
+th{{background:#4CAF50;color:white}}canvas{{max-height:300px}}</style></head>
+<body><a href="/report">← 返回列表</a>
+<div class="card"><h1>性能测试报告</h1>
+<p><b>报告ID:</b> {report_id}</p><p><b>设备:</b> {r["device_info"]}</p>
+<p><b>测试时间:</b> {r["created_at"][:19]}</p></div>
+<div class="card"><h2>性能对比</h2>
+<table><tr><th>模式</th><th>检测(ms)</th><th>嵌入(ms)</th><th>搜索(ms)</th>
+<th>网络(ms)</th><th>服务器(ms)</th><th>总延迟(ms)</th></tr>{rows}</table></div>
+<div class="card"><h2>延迟对比图</h2><canvas id="chart"></canvas></div>
+<script>new Chart(document.getElementById("chart"),{{type:"bar",
+data:{{labels:{chart_labels},datasets:[{{label:"总延迟(ms)",data:{chart_data},
+backgroundColor:"#4CAF50"}}]}},options:{{responsive:true}}}})</script></body></html>'''
 
 if __name__ == "__main__":
     import uvicorn

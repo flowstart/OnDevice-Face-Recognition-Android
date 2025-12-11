@@ -12,16 +12,20 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -31,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -41,8 +46,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import com.ml.shubham0204.facenet_android.R
@@ -114,32 +121,124 @@ fun DetectScreen(
 @Composable
 private fun ScreenUI() {
     val viewModel: DetectScreenViewModel = koinViewModel()
+    val currentModeName by viewModel.currentModeName.collectAsState()
+    val extendedMetrics by viewModel.extendedMetrics.collectAsState()
+    val uploadStatus by viewModel.uploadStatus.collectAsState()
+    val networkError by viewModel.networkError.collectAsState()
+    
     Box {
         Camera(viewModel)
+        
+        // Top: Current mode display
+        Column(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            // Current mode indicator
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = currentModeName,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+            
+            // Network error display
+            networkError?.let { error ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.Red.copy(alpha = 0.8f))
+                        .padding(8.dp)
+                ) {
+                    Text(
+                        text = error,
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
+            }
+        }
+        
         DelayedVisibility(viewModel.getNumPeople() > 0) {
-            val metrics by remember { viewModel.faceDetectionMetricsState }
             Column {
                 Text(
                     text = "Recognition on ${viewModel.getNumPeople()} face(s)",
                     color = Color.White,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 48.dp),
                     textAlign = TextAlign.Center,
                 )
                 Spacer(modifier = Modifier.weight(1f))
-                metrics?.let {
-                    Text(
-                        text =
-                            "face detection: ${it.timeFaceDetection} ms" +
-                                "\nface embedding: ${it.timeFaceEmbedding} ms" +
-                                "\nvector search: ${it.timeVectorSearch} ms\n" +
-                                "spoof detection: ${it.timeFaceSpoofDetection} ms",
-                        color = Color.White,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 24.dp),
-                        textAlign = TextAlign.Center,
-                    )
+                
+                // Extended metrics display
+                extendedMetrics?.let { metrics ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.Black.copy(alpha = 0.7f))
+                            .padding(12.dp)
+                    ) {
+                        Text(
+                            text = "人脸检测: ${metrics.timeFaceDetection} ms\n" +
+                                   "嵌入生成: ${metrics.timeFaceEmbedding} ms\n" +
+                                   "向量搜索: ${metrics.timeVectorSearch} ms\n" +
+                                   "活体检测: ${metrics.timeFaceSpoofDetection} ms\n" +
+                                   "网络传输: ${metrics.timeNetworkTransfer} ms\n" +
+                                   "服务器处理: ${metrics.timeServerProcessing} ms\n" +
+                                   "总延迟: ${metrics.totalTime} ms",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        // Upload button
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
+                                onClick = { viewModel.uploadPerformanceData() },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF4CAF50)
+                                )
+                            ) {
+                                Icon(
+                                    Icons.Default.CloudUpload,
+                                    contentDescription = null,
+                                    tint = Color.White
+                                )
+                                Text(
+                                    " 上传数据",
+                                    color = Color.White
+                                )
+                            }
+                        }
+                        
+                        if (uploadStatus.isNotEmpty()) {
+                            Text(
+                                text = uploadStatus,
+                                color = Color.Yellow,
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -150,7 +249,7 @@ private fun ScreenUI() {
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .padding(horizontal = 16.dp, vertical = 56.dp)
                         .background(Color.Blue, RoundedCornerShape(16.dp))
                         .padding(8.dp),
                 textAlign = TextAlign.Center,

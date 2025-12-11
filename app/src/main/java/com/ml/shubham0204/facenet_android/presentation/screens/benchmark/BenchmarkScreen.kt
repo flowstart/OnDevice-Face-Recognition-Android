@@ -47,6 +47,8 @@ fun BenchmarkScreen(
     val testResults by viewModel.testResults.collectAsState()
     val isRunning by viewModel.isRunning.collectAsState()
     val statusMessage by viewModel.statusMessage.collectAsState()
+    val uploadedModes by viewModel.uploadedModes.collectAsState()
+    val configSaved by viewModel.configSaved.collectAsState()
     
     Scaffold(
         topBar = {
@@ -59,10 +61,9 @@ fun BenchmarkScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { viewModel.exportResults(context) },
-                        enabled = testResults.isNotEmpty()
+                        onClick = { viewModel.openReportList(context) }
                     ) {
-                        Icon(Icons.Default.Share, "导出结果")
+                        Icon(Icons.Default.Share, "查看报告")
                     }
                 }
             )
@@ -81,9 +82,11 @@ fun BenchmarkScreen(
                     serverHost = serverHost,
                     serverPort = serverPort,
                     isReachable = isServerReachable,
+                    configSaved = configSaved,
                     onHostChange = { viewModel.updateServerHost(it) },
                     onPortChange = { viewModel.updateServerPort(it) },
-                    onTestConnection = { viewModel.testServerConnection() }
+                    onTestConnection = { viewModel.testServerConnection() },
+                    onSaveConfig = { viewModel.saveConfig() }
                 )
             }
             
@@ -91,17 +94,20 @@ fun BenchmarkScreen(
             item {
                 ModeSelectionCard(
                     currentMode = currentMode,
+                    uploadedModes = uploadedModes,
                     onModeSelected = { viewModel.setMode(it) }
                 )
             }
             
-            // Run Test Button
+            // Save and Report Buttons
             item {
-                RunTestCard(
-                    isRunning = isRunning,
+                ReportCard(
                     statusMessage = statusMessage,
-                    onRunTest = { viewModel.runBenchmark() },
-                    onRunAllTests = { viewModel.runAllBenchmarks() }
+                    canGenerateReport = viewModel.canGenerateReport(),
+                    uploadedCount = uploadedModes.size,
+                    totalModes = OffloadingMode.values().size,
+                    onGenerateReport = { viewModel.generateReport(context) },
+                    onResetSession = { viewModel.resetSession() }
                 )
             }
             
@@ -128,9 +134,11 @@ fun ServerConfigCard(
     serverHost: String,
     serverPort: Int,
     isReachable: Boolean?,
+    configSaved: Boolean,
     onHostChange: (String) -> Unit,
     onPortChange: (Int) -> Unit,
-    onTestConnection: () -> Unit
+    onTestConnection: () -> Unit,
+    onSaveConfig: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -196,6 +204,20 @@ fun ServerConfigCard(
                     Text("测试连接")
                 }
             }
+            
+            // Save button
+            Button(
+                onClick = onSaveConfig,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (configSaved) 
+                        MaterialTheme.colorScheme.secondary 
+                    else 
+                        MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Text(if (configSaved) "已保存" else "保存配置")
+            }
         }
     }
 }
@@ -203,6 +225,7 @@ fun ServerConfigCard(
 @Composable
 fun ModeSelectionCard(
     currentMode: OffloadingMode,
+    uploadedModes: Set<OffloadingMode>,
     onModeSelected: (OffloadingMode) -> Unit
 ) {
     Card(
@@ -213,16 +236,44 @@ fun ModeSelectionCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "选择划分模式",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                // Upload status indicators
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    OffloadingMode.values().forEach { mode ->
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .background(
+                                    if (uploadedModes.contains(mode)) Color(0xFF4CAF50)
+                                    else Color.Gray.copy(alpha = 0.3f),
+                                    RoundedCornerShape(5.dp)
+                                )
+                        )
+                    }
+                }
+            }
+            
             Text(
-                "选择划分模式",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
+                "上传状态: ${uploadedModes.size}/5",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
             )
             
             OffloadingMode.values().forEach { mode ->
                 ModeOption(
                     mode = mode,
                     isSelected = mode == currentMode,
+                    isUploaded = uploadedModes.contains(mode),
                     onClick = { onModeSelected(mode) }
                 )
             }
@@ -235,6 +286,7 @@ fun ModeSelectionCard(
 fun ModeOption(
     mode: OffloadingMode,
     isSelected: Boolean,
+    isUploaded: Boolean = false,
     onClick: () -> Unit
 ) {
     val (title, description, localParts, cloudParts) = getModeInfo(mode)
@@ -255,16 +307,27 @@ fun ModeOption(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    title,
-                    fontWeight = FontWeight.Medium,
-                    color = if (isSelected) 
-                        MaterialTheme.colorScheme.onPrimaryContainer 
-                    else 
-                        MaterialTheme.colorScheme.onSurface
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        title,
+                        fontWeight = FontWeight.Medium,
+                        color = if (isSelected) 
+                            MaterialTheme.colorScheme.onPrimaryContainer 
+                        else 
+                            MaterialTheme.colorScheme.onSurface
+                    )
+                    if (isUploaded) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "✓",
+                            color = Color(0xFF4CAF50),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
                 RadioButton(
                     selected = isSelected,
                     onClick = onClick
@@ -336,11 +399,13 @@ fun getModeInfo(mode: OffloadingMode): List<String> {
 }
 
 @Composable
-fun RunTestCard(
-    isRunning: Boolean,
+fun ReportCard(
     statusMessage: String,
-    onRunTest: () -> Unit,
-    onRunAllTests: () -> Unit
+    canGenerateReport: Boolean,
+    uploadedCount: Int,
+    totalModes: Int,
+    onGenerateReport: () -> Unit,
+    onResetSession: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -351,7 +416,7 @@ fun RunTestCard(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                "运行测试",
+                "性能报告",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -364,33 +429,31 @@ fun RunTestCard(
                 )
             }
             
+            Text(
+                "请在识别页面测试每个模式，并点击上传按钮。\n已上传: $uploadedCount / $totalModes 个模式",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            )
+            
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Button(
-                    onClick = onRunTest,
-                    enabled = !isRunning,
+                    onClick = onGenerateReport,
+                    enabled = canGenerateReport,
                     modifier = Modifier.weight(1f)
                 ) {
-                    if (isRunning) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(Icons.Default.PlayArrow, null)
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("测试当前模式")
+                    Text(
+                        if (canGenerateReport) "生成报告" else "请先上传所有模式"
+                    )
                 }
                 
                 OutlinedButton(
-                    onClick = onRunAllTests,
-                    enabled = !isRunning,
+                    onClick = onResetSession,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("测试所有模式")
+                    Text("重置")
                 }
             }
         }

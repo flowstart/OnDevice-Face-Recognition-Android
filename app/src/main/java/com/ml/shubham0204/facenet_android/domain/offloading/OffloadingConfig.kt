@@ -58,8 +58,31 @@ object OffloadingConfig {
     /**
      * Server configuration.
      */
-    var serverHost: String = "192.168.1.100"  // Change to your server IP
+    var serverHost: String = "124.220.234.68"  // Default server IP
     var serverPort: Int = 8000
+    
+    /**
+     * Session ID for grouping performance data uploads.
+     */
+    var sessionId: String = java.util.UUID.randomUUID().toString()
+    
+    /**
+     * Track which modes have uploaded data in current session.
+     */
+    val uploadedModes: MutableSet<OffloadingMode> = mutableSetOf()
+    
+    /**
+     * Check if all modes have been uploaded.
+     */
+    fun allModesUploaded(): Boolean = uploadedModes.size == OffloadingMode.values().size
+    
+    /**
+     * Reset session for new test.
+     */
+    fun resetSession() {
+        sessionId = java.util.UUID.randomUUID().toString()
+        uploadedModes.clear()
+    }
     
     val serverBaseUrl: String
         get() = "http://$serverHost:$serverPort"
