@@ -211,7 +211,10 @@ class OffloadingImageVectorUseCase(
                 Pair(embedding, searchResult)
             }
             
-            // 发网络请求获取延迟数据（根据模式选择不同接口）
+            // 先等待本地识别完成
+            val (embedding, searchResult) = localResultDeferred.await()
+            
+            // 然后发网络请求获取延迟数据（避免 TFLite 并发问题）
             val networkDeferred = async {
                 try {
                     val networkStart = System.currentTimeMillis()
@@ -222,7 +225,7 @@ class OffloadingImageVectorUseCase(
                             NetworkResult(resp.processingTimeMs.toLong(), false)
                         }
                         OffloadingConfig.OffloadingMode.SEARCH_OFFLOAD -> {
-                            val embedding = faceNet.getFaceEmbedding(croppedBitmap)
+                            // 使用已生成的 embedding，避免重复调用 TFLite
                             dataTransferred += embedding.size * 4L
                             val resp = cloudService.searchVector(embedding)
                             NetworkResult(resp.processingTimeMs.toLong(), false)
@@ -249,9 +252,6 @@ class OffloadingImageVectorUseCase(
                     NetworkResult(0, true)
                 }
             }
-            
-            // 等待两者都完成
-            val (embedding, searchResult) = localResultDeferred.await()
             val networkResult = networkDeferred.await()
             
             if (networkResult.failed) {
