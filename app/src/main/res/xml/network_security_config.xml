@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 允许明文 HTTP 流量（用于开发测试） -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    
+    <!-- 或者只允许特定域名 -->
+    <!-- 
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">124.220.234.68</domain>
+    </domain-config>
+    -->
+</network-security-config>
+
