@@ -500,13 +500,46 @@ class GenerateReportRequest(BaseModel):
 async def upload_performance_data(data: PerformanceDataUpload):
     session_id = data.session_id
     mode = data.mode
-    performance_data_store[session_id][mode] = {
-        "mode": mode, "mode_name": data.mode_name,
-        "metrics": data.metrics.dict(), "device_info": data.device_info,
-        "network_type": data.network_type, "timestamp": data.timestamp,
-        "uploaded_at": datetime.now().isoformat()
+    
+    # 如果该模式已有数据，累加计算平均值
+    if mode in performance_data_store[session_id]:
+        existing = performance_data_store[session_id][mode]
+        count = existing.get("upload_count", 1) + 1
+        old_metrics = existing["metrics"]
+        new_metrics = data.metrics.dict()
+        
+        # 计算累加平均值
+        avg_metrics = {}
+        for key in new_metrics:
+            old_val = old_metrics.get(key, 0)
+            new_val = new_metrics[key]
+            # 累加平均: new_avg = old_avg + (new_val - old_avg) / count
+            avg_metrics[key] = old_val + (new_val - old_val) / count
+        
+        performance_data_store[session_id][mode] = {
+            "mode": mode, "mode_name": data.mode_name,
+            "metrics": avg_metrics, "device_info": data.device_info,
+            "network_type": data.network_type, "timestamp": data.timestamp,
+            "uploaded_at": datetime.now().isoformat(),
+            "upload_count": count
+        }
+    else:
+        # 第一次上传该模式
+        performance_data_store[session_id][mode] = {
+            "mode": mode, "mode_name": data.mode_name,
+            "metrics": data.metrics.dict(), "device_info": data.device_info,
+            "network_type": data.network_type, "timestamp": data.timestamp,
+            "uploaded_at": datetime.now().isoformat(),
+            "upload_count": 1
+        }
+    
+    count = performance_data_store[session_id][mode]["upload_count"]
+    return {
+        "status": "success", 
+        "uploaded_modes": list(performance_data_store[session_id].keys()),
+        "mode": mode,
+        "upload_count": count
     }
-    return {"status": "success", "uploaded_modes": list(performance_data_store[session_id].keys())}
 
 @app.get("/api/v1/report/status")
 async def get_upload_status(session_id: str):
@@ -522,9 +555,13 @@ async def generate_report(request: GenerateReportRequest):
         raise HTTPException(status_code=404, detail="No data")
     report_id = str(uuid.uuid4())[:8]
     first = list(session_data.values())[0]
-    modes_data = [{"mode": m, **d["metrics"], "mode_name": d["mode_name"]} 
+    modes_data = [{"mode": m, **d["metrics"], "mode_name": d["mode_name"], 
+                   "upload_count": d.get("upload_count", 1)} 
                   for m, d in session_data.items()]
-    modes_data.sort(key=lambda x: x["mode"])
+    # 按 Mode 0-4 顺序排序
+    mode_order = ["LOCAL_ONLY", "EMBEDDING_OFFLOAD", "SEARCH_OFFLOAD", 
+                  "EMBEDDING_AND_SEARCH_OFFLOAD", "FULL_OFFLOAD"]
+    modes_data.sort(key=lambda x: mode_order.index(x["mode"]) if x["mode"] in mode_order else 99)
     reports_store[report_id] = {
         "report_id": report_id, "session_id": request.session_id,
         "created_at": datetime.now().isoformat(), "device_info": first["device_info"],
@@ -571,10 +608,11 @@ async def report_detail_page(report_id: str):
     if report_id not in reports_store:
         return HTMLResponse("<h1>报告不存在</h1>", status_code=404)
     r = reports_store[report_id]
-    rows = "".join([f'<tr><td>{m["mode_name"]}</td><td>{m["face_detection_ms"]}</td>'
-                    f'<td>{m["embedding_ms"]}</td><td>{m["vector_search_ms"]}</td>'
-                    f'<td>{m["network_ms"]}</td><td>{m["server_ms"]}</td>'
-                    f'<td><b>{m["total_ms"]}</b></td></tr>' for m in r["modes"]])
+    rows = "".join([f'<tr><td>{m["mode_name"]}</td><td>{int(m["face_detection_ms"])}</td>'
+                    f'<td>{int(m["embedding_ms"])}</td><td>{int(m["vector_search_ms"])}</td>'
+                    f'<td>{int(m["network_ms"])}</td><td>{int(m["server_ms"])}</td>'
+                    f'<td><b>{int(m["total_ms"])}</b></td>'
+                    f'<td>{m.get("upload_count", 1)}次</td></tr>' for m in r["modes"]])
     chart_labels = str([m["mode_name"] for m in r["modes"]])
     chart_data = str([m["total_ms"] for m in r["modes"]])
     return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -590,7 +628,7 @@ th{{background:#4CAF50;color:white}}canvas{{max-height:300px}}</style></head>
 <p><b>测试时间:</b> {r["created_at"][:19]}</p></div>
 <div class="card"><h2>性能对比</h2>
 <table><tr><th>模式</th><th>检测(ms)</th><th>嵌入(ms)</th><th>搜索(ms)</th>
-<th>网络(ms)</th><th>服务器(ms)</th><th>总延迟(ms)</th></tr>{rows}</table></div>
+<th>网络(ms)</th><th>服务器(ms)</th><th>总延迟(ms)</th><th>采样次数</th></tr>{rows}</table></div>
 <div class="card"><h2>延迟对比图</h2><canvas id="chart"></canvas></div>
 <script>new Chart(document.getElementById("chart"),{{type:"bar",
 data:{{labels:{chart_labels},datasets:[{{label:"总延迟(ms)",data:{chart_data},
